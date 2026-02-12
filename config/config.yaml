@@ -1,0 +1,182 @@
+# =============================================================================
+# Temporal GNN for Ethereum Fraud Detection - Configuration
+# =============================================================================
+
+# Project Settings
+project:
+  name: "ethereum-fraud-tgn"
+  seed: 42
+  device: "cuda"  # "cuda" or "cpu"
+  num_workers: 4
+
+# Dataset Configuration
+data:
+  dataset_name: "elliptic"  # "elliptic" or "bigquery"
+  data_dir: "./data/raw/"
+  processed_dir: "./data/processed/"
+  
+  # Elliptic++ specific settings
+  elliptic:
+    num_timesteps: 49  # Number of temporal snapshots
+    train_timesteps: 44  # First 44 timesteps for training (use more data)
+    val_timesteps: 3    # Next 3 for validation
+    test_timesteps: 2  # Last 2 for testing
+  
+  # Feature engineering
+  features:
+    node_features:
+      - "balance"
+      - "nonce"
+      - "total_tx_count"
+      - "avg_tx_value"
+      - "time_since_first_tx"
+      - "in_degree"
+      - "out_degree"
+    edge_features:
+      - "value"
+      - "gas"
+      - "gas_price"
+      - "timestamp"
+      - "block_number"
+    
+    # Normalization
+    normalize: true
+    normalization_method: "standard"  # "standard" or "minmax"
+
+# Model Architecture
+model:
+  architecture: "gconv_gru"  # "gconv_gru", "evolve_gcn", or "tgat"
+  
+  # Input dimensions (computed from features)
+  node_input_dim: 7   # Number of node features
+  edge_input_dim: 5   # Number of edge features
+  
+  # GConvGRU settings
+  gconv_gru:
+    hidden_channels: [128, 64]  # Hidden dimensions for each layer
+    num_layers: 2
+    dropout: 0.4
+    filter_size: 3  # Chebyshev polynomial order
+  
+  # EvolveGCN settings (alternative)
+  evolve_gcn:
+    hidden_channels: 128
+    num_layers: 3
+    variant: "H"  # "H" (LSTM) or "O" (GCN weight evolution)
+  
+  # Classification head
+  classifier:
+    hidden_dims: [64, 32]
+    dropout: 0.3
+    num_classes: 2  # Binary: fraud vs legitimate
+
+# Loss Function
+loss:
+  type: "focal"  # "focal", "weighted_ce", or "class_balanced"
+  
+  focal_loss:
+    alpha: 0.85  # Weight for positive (fraud) class
+    gamma: 3.0   # Focusing parameter (higher = more focus on hard examples)
+  
+  weighted_ce:
+    # Computed dynamically based on class distribution
+    auto_weight: true
+    fraud_weight: 10.0  # Manual weight if auto_weight is false
+
+# Training Configuration
+training:
+  epochs: 300
+  batch_size: 1  # For temporal graphs, typically 1 graph per batch
+  
+  # Optimizer
+  optimizer:
+    type: "adamw"
+    learning_rate: 0.0005
+    weight_decay: 0.001
+    betas: [0.9, 0.999]
+  
+  # Learning rate scheduler
+  scheduler:
+    type: "reduce_on_plateau"
+    patience: 5
+    factor: 0.5
+    min_lr: 0.00001
+  
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 30
+    monitor: "val_pr_auc"  # Monitor PR-AUC for best model
+    mode: "max"
+  
+  # Gradient clipping
+  gradient_clip: 1.0
+  
+  # Class balancing during training
+  sampling:
+    use_weighted_sampler: true
+    oversample_minority: false
+
+# Evaluation Metrics
+evaluation:
+  # Primary metric for model selection
+  primary_metric: "pr_auc"
+  
+  # All metrics to compute
+  metrics:
+    - "pr_auc"
+    - "roc_auc"
+    - "precision"
+    - "recall"
+    - "f1_score"
+    - "average_precision"
+  
+  # Threshold for binary predictions
+  classification_threshold: 0.5
+  
+  # Find optimal threshold using validation set
+  optimize_threshold: true
+
+# Explainability (GNNExplainer)
+explainability:
+  enabled: true
+  
+  gnn_explainer:
+    epochs: 200
+    lr: 0.01
+    num_hops: 2  # Subgraph size around target node
+    
+    # Coefficients for explanation loss
+    edge_mask_coef: 1.0
+    node_feat_mask_coef: 1.0
+    entropy_coef: 0.1
+    
+    # Visualization
+    top_k_edges: 10  # Show top-k important edges
+    save_visualizations: true
+    visualization_dir: "./outputs/explanations/"
+
+# Checkpointing & Logging
+checkpointing:
+  checkpoint_dir: "./checkpoints/"
+  save_every_n_epochs: 5
+  save_best_only: true
+
+logging:
+  log_dir: "./logs/"
+  use_wandb: false
+  wandb_project: "ethereum-fraud-tgn"
+  log_every_n_steps: 10
+  
+# Live Testing (BigQuery/Alchemy)
+live_testing:
+  enabled: false
+  
+  bigquery:
+    project_id: "your-gcp-project"
+    dataset: "crypto_ethereum"
+    credentials_path: "./credentials/gcp_key.json"
+  
+  alchemy:
+    api_key: "${ALCHEMY_API_KEY}"  # From environment variable
+    network: "mainnet"
